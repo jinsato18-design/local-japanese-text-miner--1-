@@ -132,14 +132,17 @@ export default function App() {
   };
 
   // データセットのローカル形態素解析・センチメント付与
-  const processDataset = (rawRows: SurveyRow[]) => {
+  const processDataset = (rawRows: SurveyRow[], overrideStopwordsStr?: string) => {
     setProgress(30);
+
+    const targetStopwordsStr = overrideStopwordsStr !== undefined ? overrideStopwordsStr : customStopwordsStr;
 
     // ストップワードの結合
     const stopwordSet = new Set(DEFAULT_STOPWORDS);
-    if (customStopwordsStr.trim()) {
-      customStopwordsStr.split(/[,、\s]+/).forEach(w => {
-        if (w.trim()) stopwordSet.add(w.trim());
+    if (targetStopwordsStr.trim()) {
+      targetStopwordsStr.split(/[,、\s]+/).forEach(w => {
+        const normalized = w.trim().toLowerCase().replace(/[。]/g, '');
+        if (normalized) stopwordSet.add(normalized);
       });
     }
 
@@ -445,11 +448,16 @@ export default function App() {
               <span className="text-slate-500">除外語(カンマ区切り):</span>
               <input
                 type="text"
-                placeholder="例: 御社, 会社"
+                placeholder="例: 御社, 会社, *ます"
                 value={customStopwordsStr}
                 onChange={(e) => setCustomStopwordsStr(e.target.value)}
                 onBlur={() => processDataset(rows)}
-                className="w-40 px-2.5 py-1 bg-slate-50 border border-slate-300 rounded text-xs"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    processDataset(rows);
+                  }
+                }}
+                className="w-48 px-2.5 py-1 bg-slate-50 border border-slate-300 rounded text-xs"
               />
             </div>
           </div>
@@ -574,7 +582,18 @@ export default function App() {
                             {w.sentimentAvg > 0 ? `+${w.sentimentAvg}` : w.sentimentAvg}
                           </span>
                         </td>
-                        <td className="py-2 px-4 text-right">
+                        <td className="py-2 px-4 text-right flex justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              const newStr = customStopwordsStr.trim() ? `${customStopwordsStr.trim()}, ${w.word}` : w.word;
+                              setCustomStopwordsStr(newStr);
+                              processDataset(rows, newStr);
+                            }}
+                            className="text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition"
+                            title="この単語を除外語に追加して再集計"
+                          >
+                            除外
+                          </button>
                           <button
                             onClick={() => handleWordDrilldown(w.word)}
                             className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded transition"

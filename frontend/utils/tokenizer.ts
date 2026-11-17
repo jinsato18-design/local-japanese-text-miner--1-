@@ -9,7 +9,8 @@ export const DEFAULT_STOPWORDS = new Set([
   'など', 'また', 'そして', 'しかし', 'ただ', 'だが', 'ので', 'から', 'より', 'まで',
   'て', 'に', 'を', 'は', 'が', 'の', 'と', 'で', 'へ', 'や', 'も', 'ね', 'よ',
   'ない', 'よい', 'いい', 'あり', 'なし', '御社', '貴社', '今回', '最近', '自分',
-  'お願い', '希望', '利用', '使用', '担当', '対応', '会社', '製品', 'サービス'
+  'お願い', '希望', '利用', '使用', '担当', '対応', '会社', '製品', 'サービス',
+  'ました', 'ません', 'ましょう', 'でした', 'でしょ'
 ]);
 
 // 簡易極性辞書（主要なポジティブ・ネガティブ語句と重み）
@@ -58,6 +59,25 @@ function getSegmenter(): Intl.Segmenter {
 
 export function tokenizeText(text: string, customStopwords: Set<string>): WordToken[] {
   if (!text) return [];
+  
+  const exactStopwords = new Set<string>();
+  const wildcardPatterns: RegExp[] = [];
+
+  for (const sw of customStopwords) {
+    const normalizedSw = sw.toLowerCase().trim().replace(/[、。]/g, '');
+    if (!normalizedSw) continue;
+
+    if (normalizedSw.includes('*') || normalizedSw.includes('~') || normalizedSw.includes('～')) {
+      let patternStr = normalizedSw
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/[~～]/g, '.*');
+      wildcardPatterns.push(new RegExp(`^${patternStr}$`));
+    } else {
+      exactStopwords.add(normalizedSw);
+    }
+  }
+
   const segmenter = getSegmenter();
   const segments = segmenter.segment(text);
   const tokens: WordToken[] = [];
@@ -70,7 +90,17 @@ export function tokenizeText(text: string, customStopwords: Set<string>): WordTo
     if (/^[a-zA-Z]$/.test(raw)) continue;
 
     const normalized = raw.toLowerCase();
-    if (customStopwords.has(normalized)) continue;
+    
+    if (exactStopwords.has(normalized)) continue;
+    
+    let isWildcardMatch = false;
+    for (const pattern of wildcardPatterns) {
+      if (pattern.test(normalized)) {
+        isWildcardMatch = true;
+        break;
+      }
+    }
+    if (isWildcardMatch) continue;
 
     const pos = estimatePos(normalized);
     const sentimentScore = SENTIMENT_DICT[normalized] || 0;

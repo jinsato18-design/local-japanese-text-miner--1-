@@ -25,6 +25,7 @@
     "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-react": "latest",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "vite-plugin-singlefile": "^2.3.4"
   }
 }

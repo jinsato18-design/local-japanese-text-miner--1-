@@ -1,53 +1,49 @@
-# Vertex AI Studio Frontend App with Node.js Backend
+# 日本語アンケート・テキストマイニングツール
 
-This repository contains a frontend and a Node.js backend, designed to run together.
-The backend acts as a proxy, handling Google Cloud API calls.
+このツールは、1,000〜10,000件規模のアンケート自由記述を、外部サーバーに通信することなく完全ローカル（ブラウザ内）で高速・高精度に一括解析できるテキストマイニングアプリケーションです。
 
-This project is intended for demonstration and prototyping purposes only.
-It is not intended for use in a production environment.
+## 主な機能
 
-## Prerequisites
+*   **完全ローカル動作**: `Intl.Segmenter` による形態素解析を利用し、個人情報や機密情報を含むテキストを安全に処理します。
+*   **単語頻度・共起ネットワーク・ワードクラウド**: 抽出された単語の出現頻度や関連性を可視化します。
+*   **感情・満足度分析**: 独自の極性辞書を用いて、各回答のポジティブ・ネガティブを自動判定します。
+*   **KWIC・原文ブラウザ**: 気になる単語をクリックするだけで、その単語を含む原文を瞬時に一覧表示します。
 
-To run this application locally, you need:
+## 対象外ワード（ストップワード）の指定機能
 
-*   **[Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)**: Follow the instructions to install the SDK.
+分析のノイズとなる語句を除外するために、画面上部の「除外語(カンマ区切り)」入力欄で除外対象を指定できます。
+*   **完全一致**: `御社`, `会社` のように入力します。
+*   **ワイルドカード指定**: 
+    *   `*ます` または `～ます`：末尾が「ます」で終わる単語をすべて除外します。
+    *   `*` や `～` を使って、前方一致・後方一致・部分一致を柔軟に指定できます。
+*   **自動正規化**: 入力時の句読点（`、` `。`）や全角・半角スペース、大文字・小文字の違いは自動でトリム・小文字化されて判定されます。
+*   除外語を入力して **Enterキー** を押すか、単語頻度ランキングの「**除外**」ボタンをクリックすると即座に再解析が実行されます。
 
-*   **gcloud Initialization**:
-    *   Initialize the gcloud CLI:
-        ```bash
-        gcloud init
-        ```
-    *   Authenticate for Application Default Credentials (needed to call Google Cloud APIs):
-        ```bash
-        gcloud auth application-default login
-        ```
+## Windowsでの起動方法 (GUI)
 
-*   **Node.js and npm**: Ensure you have Node.js and its package manager, `npm`, installed on your machine.
+Windows環境では、コマンド操作なしで簡単に起動できます。
 
-## Project Structure
+1.  プロジェクトフォルダ内にある `start.bat` ファイルをダブルクリックして実行してください。
+2.  自動的にNode.jsの有無がチェックされ、必要なパッケージがインストールされます。
+3.  準備が完了すると、自動的に標準ブラウザが開いてツールが起動します。
 
-The project is organized into two main directories:
+※ Node.jsが未インストールの場合は、スクリプト内に表示される案内URLからインストールを行ってください。
 
-*   `frontend/`: Contains the Frontend application code.
-*   `backend/`: Contains the Node.js/Express server code to proxy Google Cloud API calls.
+## 単一HTMLファイルのビルド
 
-## Backend Environment Variables
-
-The `backend/.env.local` file is automatically generated when you download this application.
-It contains essential Google Cloud environment variables pre-configured based on your project settings at the time of download.
-
-The variables set in `backend/.env.local` are:
-*   `API_BACKEND_PORT`: The port the backend API server listens on (e.g., `5000`).
-*   `API_PAYLOAD_MAX_SIZE`: The maximum size of the request payload accepted by the backend server (e.g., `5mb`).
-*   `GOOGLE_CLOUD_LOCATION`: The Google Cloud region associated with your project.
-*   `GOOGLE_CLOUD_PROJECT`: Your Google Cloud Project ID.
-
-**Note:** These variables are automatically populated during the download process.
-You can modify the values in `backend/.env.local` if you need to change them.
-
-## Installation and Running the App
-
-To install dependencies and run your Google Cloud Vertex AI Studio App locally, execute the following command:
+PCにNode.jsが入っていない環境へ配布する場合、以下のコマンドで単一のHTMLファイルとして出力できます。
 
 ```bash
-npm install && npm run dev
+cd frontend
+npm run build
+```
+
+ビルド後、`frontend/dist/index.html` にJS/CSSがすべて埋め込まれた単一ファイルが生成されます。このファイルをダブルクリックするだけで、どんなPCでもツールを使用できます。
+
+## CSVファイルの取り込み仕様
+
+ヘッダー付きのCSVまたはTSVファイルを読み込めます。列順序は以下の通りです：
+
+1.  第1列: 回答テキスト（必須）
+2.  第2列: 属性カテゴリ（任意）
+3.  第3列: 満足度スコア（任意）

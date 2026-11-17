@@ -50,6 +50,18 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
             </ul>
           </div>
 
+          {/* Windows起動方法 */}
+          <div>
+            <h3 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              WindowsでのGUI起動方法
+            </h3>
+            <p className="text-slate-600 ml-1">
+              コマンド操作なしで簡単に起動するには、プロジェクトフォルダ内の <code>start.bat</code> をダブルクリックしてください。自動的にブラウザが開きます。<br/>
+              単一HTMLファイルとして配布したい場合は、<code>npm run build</code> を実行すると <code>frontend/dist/index.html</code> にすべてがまとめられます。
+            </p>
+          </div>
+
           {/* 取り込みCSVフォーマット */}
           <div>
             <h3 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
@@ -80,6 +92,14 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <span className="font-bold text-slate-800">共起ネットワークの操作</span>
                 <p className="text-slate-500 mt-0.5">各ノード（丸）はドラッグして位置を調整できます。スライダーで共起回数やJaccard係数の閾値を変更してネットワークの密度を調整できます。</p>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">対象外ワード（ストップワード）の柔軟な指定</span>
+                <p className="text-slate-500 mt-0.5">
+                  画面上部の入力欄から、除外したい語句をカンマ区切りで指定できます。<br/>
+                  完全一致だけでなく、<code>*ます</code> や <code>～ます</code> のようなワイルドカード指定にも対応しています。入力後 Enter キーを押すか、ランキング表の「除外」ボタンから即座に再解析が可能です。
+                </p>
               </div>
 
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">

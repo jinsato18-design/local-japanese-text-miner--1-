@@ -237,7 +237,7 @@ export function computeCooccurrence(
     pos: w.pos
   }));
 
-  const edges: CooccurrenceEdge[] = [];
+  const candidateEdges: CooccurrenceEdge[] = [];
   for (const [pairKey, weight] of coocMap.entries()) {
     if (weight < minCoocCount) continue;
     const [w1, w2] = pairKey.split(':::');
@@ -249,7 +249,7 @@ export function computeCooccurrence(
     const jaccard = union > 0 ? weight / union : 0;
 
     if (jaccard >= minJaccard) {
-      edges.push({
+      candidateEdges.push({
         source: w1,
         target: w2,
         weight,
@@ -258,7 +258,23 @@ export function computeCooccurrence(
     }
   }
 
-  return { nodes, edges };
+  // 視認性を保つため、各ノードごとにJaccard係数の高い上位5件のエッジに制限する
+  const nodeEdges = new Map<string, CooccurrenceEdge[]>();
+  nodes.forEach(n => nodeEdges.set(n.id, []));
+
+  candidateEdges.forEach(e => {
+    nodeEdges.get(e.source)?.push(e);
+    nodeEdges.get(e.target)?.push(e);
+  });
+
+  const finalEdges = new Set<CooccurrenceEdge>();
+  for (const edgesOfNode of nodeEdges.values()) {
+    edgesOfNode.sort((a, b) => b.jaccard - a.jaccard);
+    const topEdges = edgesOfNode.slice(0, 5);
+    topEdges.forEach(e => finalEdges.add(e));
+  }
+
+  return { nodes, edges: Array.from(finalEdges) };
 }
 
 // 2-gram / 3-gram フレーズ抽出

@@ -45,8 +45,8 @@ export default function App() {
   const [posVerb, setPosVerb] = useState(true);
   const [minFreq, setMinFreq] = useState(3);
   const [customStopwordsStr, setCustomStopwordsStr] = useState('');
-  const [networkMinCooc, setNetworkMinCooc] = useState(3);
-  const [networkMinJaccard, setNetworkMinJaccard] = useState(0.06);
+  const [networkMinCooc, setNetworkMinCooc] = useState(4);
+  const [networkMinJaccard, setNetworkMinJaccard] = useState(0.08);
   const [kwicSearchQuery, setKwicSearchQuery] = useState('');
 
   // 処理中フラグ

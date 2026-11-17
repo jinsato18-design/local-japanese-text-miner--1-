@@ -37,15 +37,22 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
   const width = 800;
   const height = 500;
 
+  const simNodesRef = useRef<SimNode[]>([]);
+
   // 簡易力学シミュレーション（クライアントサイド・高速計算）
   useEffect(() => {
     if (nodes.length === 0) {
       setSimNodes([]);
+      simNodesRef.current = [];
       return;
     }
 
-    // 初期配置 (円形ランダム配置)
+    // 初期配置 (円形ランダム配置 または 前回の座標を引き継ぎ)
     const initial: SimNode[] = nodes.map((n, i) => {
+      const existing = simNodesRef.current.find(sn => sn.id === n.id);
+      if (existing) {
+        return { ...n, x: existing.x, y: existing.y, vx: 0, vy: 0 };
+      }
       const angle = (i / nodes.length) * 2 * Math.PI;
       const radius = 160 + (i % 3) * 35;
       return {
@@ -60,8 +67,8 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
     const nodeIndexMap = new Map<string, number>();
     initial.forEach((n, idx) => nodeIndexMap.set(n.id, idx));
 
-    // 100回のイテレーションで静的レイアウトを安定化
-    for (let step = 0; step < 110; step++) {
+    // 150回のイテレーションで静的レイアウトを安定化
+    for (let step = 0; step < 150; step++) {
       // 1. ノード間の反発力 (Coulomb force)
       for (let i = 0; i < initial.length; i++) {
         for (let j = i + 1; j < initial.length; j++) {
@@ -70,7 +77,7 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
           const dx = n2.x - n1.x;
           const dy = n2.y - n1.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const repulse = 1800 / (dist * dist);
+          const repulse = 4000 / (dist * dist);
           const fx = (dx / dist) * repulse;
           const fy = (dy / dist) * repulse;
 
@@ -92,8 +99,8 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
         const dx = n2.x - n1.x;
         const dy = n2.y - n1.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const targetDist = 90 - Math.min(edge.jaccard * 100, 40);
-        const attract = (dist - targetDist) * 0.04 * (edge.jaccard * 2.5);
+        const targetDist = 150 - Math.min(edge.jaccard * 100, 40);
+        const attract = (dist - targetDist) * 0.03 * (edge.jaccard * 2.5);
 
         const fx = (dx / dist) * attract;
         const fy = (dy / dist) * attract;
@@ -106,8 +113,8 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
 
       // 3. 中心への重力引力
       for (const n of initial) {
-        n.vx += (width / 2 - n.x) * 0.015;
-        n.vy += (height / 2 - n.y) * 0.015;
+        n.vx += (width / 2 - n.x) * 0.008;
+        n.vy += (height / 2 - n.y) * 0.008;
 
         // 減衰と位置適用
         n.x += n.vx * 0.5;
@@ -119,6 +126,10 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
 
     setSimNodes(initial);
   }, [nodes, edges]);
+
+  useEffect(() => {
+    simNodesRef.current = simNodes;
+  }, [simNodes]);
 
   const maxNodeCount = useMemo(() => Math.max(...nodes.map(n => n.count), 1), [nodes]);
   const nodeMap = useMemo(() => new Map(simNodes.map(n => [n.id, n])), [simNodes]);

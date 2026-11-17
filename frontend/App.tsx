@@ -54,6 +54,14 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [isPending, startTransition] = useTransition();
 
+  // CSVインポート設定モーダル用状態
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [csvData, setCsvData] = useState<string[][]>([]);
+  const [csvHasHeader, setCsvHasHeader] = useState(true);
+  const [targetColIndices, setTargetColIndices] = useState<number[]>([0]);
+  const [categoryColIndex, setCategoryColIndex] = useState(1);
+  const [scoreColIndex, setScoreColIndex] = useState(2);
+
   // 初回起動時に1,200件のサンプルアンケートをロード
   useEffect(() => {
     loadSample(1200);
@@ -69,10 +77,13 @@ export default function App() {
     }, 50);
   };
 
-  // CSVファイルドラッグ＆ドロップまたはファイル入力
+  // CSVファイル入力
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // 同じファイルを選択し直せるようにvalueをクリア
+    e.target.value = '';
 
     setIsProcessing(true);
     setProgress(10);
@@ -96,27 +107,22 @@ export default function App() {
           skipEmptyLines: true,
           complete: (results) => {
             const data = results.data as string[][];
-            if (data.length < 2) {
+            if (data.length < 1) {
               alert('CSVファイルが空または有効な行がありません。');
               setIsProcessing(false);
               return;
             }
 
-            const parsedRows: SurveyRow[] = [];
-            // 1行目はヘッダーとみなしてスキップ
-            for (let i = 1; i < data.length; i++) {
-              const cols = data[i];
-              if (!cols || !cols[0] || cols[0].trim() === '') continue;
-              parsedRows.push({
-                id: `ROW-${i}`,
-                text: cols[0],
-                category: cols[1] || '一般',
-                score: cols[2] ? Number(cols[2]) : undefined,
-                wordCount: cols[0].length
-              });
-            }
-
-            processDataset(parsedRows);
+            setCsvData(data);
+            
+            // 初期列の推定
+            const colCount = data[0].length;
+            setTargetColIndices([0]);
+            setCategoryColIndex(colCount > 1 ? 1 : -1);
+            setScoreColIndex(colCount > 2 ? 2 : -1);
+            
+            setIsCsvModalOpen(true);
+            setIsProcessing(false); // モーダル表示時はプログレスバーを非表示
           },
           error: () => {
             alert('CSVの解析に失敗しました。フォーマットを確認してください。');
@@ -129,6 +135,50 @@ export default function App() {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const executeCsvImport = () => {
+    if (targetColIndices.length === 0) {
+      alert('分析対象のテキスト列を1つ以上選択してください。');
+      return;
+    }
+
+    setIsCsvModalOpen(false);
+    setIsProcessing(true);
+    setProgress(10);
+    
+    setTimeout(() => {
+        const parsedRows: SurveyRow[] = [];
+        const startIndex = csvHasHeader ? 1 : 0;
+        
+        for (let i = startIndex; i < csvData.length; i++) {
+          const cols = csvData[i];
+          
+          // 選択された複数列のテキストをスペース区切りで結合
+          const combinedText = targetColIndices
+            .map(idx => cols[idx])
+            .filter(text => text && text.trim() !== '')
+            .join('  '); // 分析に影響が出にくいようにスペースで結合
+          
+          if (combinedText.trim() === '') continue;
+          
+          parsedRows.push({
+            id: `ROW-${i}`,
+            text: combinedText,
+            category: categoryColIndex >= 0 ? cols[categoryColIndex] || '一般' : '一般',
+            score: scoreColIndex >= 0 && cols[scoreColIndex] ? Number(cols[scoreColIndex]) : undefined,
+            wordCount: combinedText.length
+          });
+        }
+        
+        if (parsedRows.length === 0) {
+            alert('有効なデータが見つかりませんでした。');
+            setIsProcessing(false);
+            return;
+        }
+
+        processDataset(parsedRows);
+    }, 50);
   };
 
   // データセットのローカル形態素解析・センチメント付与
@@ -244,6 +294,118 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-100">
       {/* ヘルプモーダル (README) */}
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* CSVインポート設定モーダル */}
+      {isCsvModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-indigo-600" />
+                CSVインポート設定
+              </h2>
+              <button onClick={() => setIsCsvModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                &times;
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={csvHasHeader}
+                    onChange={(e) => setCsvHasHeader(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  1行目をヘッダー（列名）として扱う
+                </label>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-white border border-slate-300 rounded-lg p-3">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    分析対象のテキスト列 (複数選択可) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 rounded p-2 bg-slate-50">
+                    {csvData[0]?.map((col, idx) => (
+                      <label key={idx} className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer hover:bg-slate-100 p-1 rounded">
+                        <input
+                          type="checkbox"
+                          checked={targetColIndices.includes(idx)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setTargetColIndices(prev => [...prev, idx].sort((a, b) => a - b));
+                            } else {
+                              setTargetColIndices(prev => prev.filter(i => i !== idx));
+                            }
+                          }}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="flex-1">
+                          {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2">複数選択した場合、テキストはスペースで結合されて1つの回答として分析されます。</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    カテゴリ列 (任意)
+                  </label>
+                  <select
+                    value={categoryColIndex}
+                    onChange={(e) => setCategoryColIndex(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
+                  >
+                    <option value={-1}>-- 使用しない --</option>
+                    {csvData[0]?.map((col, idx) => (
+                      <option key={idx} value={idx}>
+                        {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    スコア・評価列 (任意)
+                  </label>
+                  <select
+                    value={scoreColIndex}
+                    onChange={(e) => setScoreColIndex(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
+                  >
+                    <option value={-1}>-- 使用しない --</option>
+                    {csvData[0]?.map((col, idx) => (
+                      <option key={idx} value={idx}>
+                        {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => setIsCsvModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={executeCsvImport}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
+              >
+                インポート実行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ヘッダー */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">

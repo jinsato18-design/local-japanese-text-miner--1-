@@ -31,7 +31,8 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
   const [zoom, setZoom] = useState(1);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [simNodes, setSimNodes] = useState<SimNode[]>([]);
-  const draggingNodeRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const draggingNodeRef = useRef<{ id: string; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null);
+  const wasMovedRef = useRef<boolean>(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const width = 800;
@@ -148,12 +149,19 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
     const logicalX = width / 2 + (svgX - width / 2) / zoom;
     const logicalY = height / 2 + (svgY - height / 2) / zoom;
 
-    draggingNodeRef.current = { id: nodeId, offsetX: logicalX - node.x, offsetY: logicalY - node.y };
+    wasMovedRef.current = false;
+    draggingNodeRef.current = { id: nodeId, offsetX: logicalX - node.x, offsetY: logicalY - node.y, startX: e.clientX, startY: e.clientY };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!draggingNodeRef.current || !svgRef.current) return;
-    const { id, offsetX, offsetY } = draggingNodeRef.current;
+    const { id, offsetX, offsetY, startX, startY } = draggingNodeRef.current;
+    
+    const dist = Math.sqrt(Math.pow(e.clientX - startX, 2) + Math.pow(e.clientY - startY, 2));
+    if (dist > 4) {
+      wasMovedRef.current = true;
+    }
+
     const rect = svgRef.current.getBoundingClientRect();
     
     const scaleX = width / rect.width;
@@ -281,7 +289,11 @@ export const CooccurrenceNetworkView: React.FC<CooccurrenceNetworkProps> = ({
                   key={n.id}
                   transform={`translate(${n.x}, ${n.y})`}
                   onMouseDown={(e) => handleMouseDown(n.id, e)}
-                  onClick={() => {
+                  onClick={(e) => {
+                    if (wasMovedRef.current) {
+                      e.stopPropagation();
+                      return;
+                    }
                     setSelectedWord(n.id === selectedWord ? null : n.id);
                     onNodeClick(n.id);
                   }}

@@ -68,13 +68,17 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
               CSVファイルの取り込み仕様
             </h3>
-            <p className="mb-2">ヘッダー付きのCSVまたはTSVファイルを読み込めます。列順序は以下の通りです：</p>
+            <p className="mb-2">ヘッダー付きのCSVファイルを読み込むと「列マッピング設定」画面が表示されます。以下の列を自由に割り当て可能です：</p>
+            <ul className="list-disc list-inside space-y-1 text-slate-600 ml-1 mb-2">
+              <li><strong>自由記述</strong>: 複数列を選択可能です。</li>
+              <li><strong>属性・セグメント</strong>: 年代、契約プラン、性別などのカテゴリ軸（複数可）。</li>
+              <li><strong>数値スコア</strong>: 満足度やNPSなどの数値軸（複数可）。</li>
+            </ul>
             <div className="bg-slate-800 text-slate-200 p-3 rounded-lg font-mono text-[11px] overflow-x-auto">
-              回答テキスト,属性カテゴリ(任意),満足度スコア(任意)<br />
-              "操作が簡単で助かります。","30代 / 有料プラン",5<br />
-              "夕方に画面が重くなります。","40代 / 無料プラン",2
+              回答ID,Q1_良い点,Q2_不満な点,年代,契約プラン,総合満足度<br />
+              001,"使いやすい","特になし","30代","スタンダード",5<br />
+              002,"普通","夕方に重くなる","40代","無料プラン",2
             </div>
-            <p className="text-[11px] text-slate-400 mt-1.5">※ 最低限「第1列（回答本文）」があれば解析可能です。</p>
           </div>
 
           {/* 各機能の操作方法 */}
@@ -85,26 +89,31 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
             </h3>
             <div className="space-y-2.5">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="font-bold text-slate-800">単語クリックから原文へ (ドリルダウン)</span>
-                <p className="text-slate-500 mt-0.5">ワードクラウド、共起ネットワーク、頻度ランキングの各単語をクリックすると、その単語を含む回答原文一覧に瞬時にジャンプします。</p>
+                <span className="font-bold text-slate-800">設問切り替え・グローバルフィルタ</span>
+                <p className="text-slate-500 mt-0.5">複数の自由記述を取り込んだ場合、上部のドロップダウンで解析対象をワンクリックで切り替えられます。また、属性（年代・プランなど）で全体のデータを絞り込むことができ、全タブが連動して更新されます。</p>
               </div>
 
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="font-bold text-slate-800">共起ネットワークの操作</span>
-                <p className="text-slate-500 mt-0.5">各ノード（丸）はドラッグして位置を調整できます。スライダーで共起回数やJaccard係数の閾値を変更してネットワークの密度を調整できます。</p>
+                <span className="font-bold text-slate-800">セグメント比較・2軸クロス集計</span>
+                <p className="text-slate-500 mt-0.5">「感情・満足度分析」タブでは、属性同士を掛け合わせた2軸クロス集計グラフが描画されます。「セグメント比較」タブでは各属性の特徴語ランキングを横並びで比較可能です。</p>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">設定プロファイルの保存・復元</span>
+                <p className="text-slate-500 mt-0.5">右上のボタンから、列マッピング設定や除外語などのパラメータを <code>.json</code> 形式で保存できます。次回のCSV読み込み前にこのプロファイルを読み込むと、設定が自動で復元されます。</p>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">単語クリックから原文へ (ドリルダウン)</span>
+                <p className="text-slate-500 mt-0.5">ワードクラウド、共起ネットワーク、頻度ランキングの各単語をクリックすると、その単語を含む回答原文一覧に瞬時にジャンプします。</p>
               </div>
 
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <span className="font-bold text-slate-800">対象外ワード（ストップワード）の柔軟な指定</span>
                 <p className="text-slate-500 mt-0.5">
                   画面上部の入力欄から、除外したい語句をカンマ区切りで指定できます。<br/>
-                  完全一致だけでなく、<code>*ます</code> や <code>～ます</code> のようなワイルドカード指定にも対応しています。入力後 Enter キーを押すか、ランキング表の「除外」ボタンから即座に再解析が可能です。
+                  完全一致だけでなく、<code>*ます</code> や <code>～ます</code> のようなワイルドカード指定にも対応しています。
                 </p>
-              </div>
-
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="font-bold text-slate-800">感情・ポジネガ分析</span>
-                <p className="text-slate-500 mt-0.5">日本語の極性語辞書と係り受けパターンにより、回答をポジティブ・中立・ネガティブに自動分類し、属性別の不満比率を可視化します。</p>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useTransition } from 'react';
 import Papa from 'papaparse';
 import encoding from 'encoding-japanese';
-import { SurveyRow, WordToken, WordFrequency, PosType } from './types';
+import { SurveyRow, WordToken, WordFrequency, PosType, ColumnMappingConfig, SavedAnalysisConfig } from './types';
 import {
   DEFAULT_STOPWORDS,
   tokenizeText,
@@ -16,6 +16,8 @@ import { CooccurrenceNetworkView } from './components/CooccurrenceNetworkView';
 import { SentimentAnalysisView } from './components/SentimentAnalysisView';
 import { KwicBrowserView } from './components/KwicBrowserView';
 import { HelpModal } from './components/HelpModal';
+import { ColumnMappingModal } from './components/ColumnMappingModal';
+import { SegmentComparisonView } from './components/SegmentComparisonView';
 import {
   FileText,
   BarChart3,
@@ -29,14 +31,19 @@ import {
   ShieldCheck,
   Cpu,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Save,
+  Download,
+  Filter,
+  Settings
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 
 export default function App() {
+  const [baseRows, setBaseRows] = useState<SurveyRow[]>([]);
   const [rows, setRows] = useState<SurveyRow[]>([]);
   const [tokenMap, setTokenMap] = useState<Map<string, WordToken[]>>(new Map());
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'frequencies' | 'cloud' | 'network' | 'ngrams' | 'sentiment' | 'kwic'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'frequencies' | 'cloud' | 'network' | 'ngrams' | 'sentiment' | 'kwic' | 'segment'>('dashboard');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   // 設定・フィルタ
@@ -49,6 +56,11 @@ export default function App() {
   const [networkMinJaccard, setNetworkMinJaccard] = useState(0.08);
   const [kwicSearchQuery, setKwicSearchQuery] = useState('');
 
+  // 複数項目分析用の状態
+  const [columnMapping, setColumnMapping] = useState<ColumnMappingConfig>({ textCols: [], attributeCols: [], scoreCols: [] });
+  const [selectedQuestion, setSelectedQuestion] = useState<string>('ALL'); // 'ALL' or specific text column
+  const [attributeFilters, setAttributeFilters] = useState<Record<string, string[]>>({});
+
   // 処理中フラグ
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -56,16 +68,46 @@ export default function App() {
 
   // CSVインポート設定モーダル用状態
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
-  const [csvData, setCsvData] = useState<string[][]>([]);
-  const [csvHasHeader, setCsvHasHeader] = useState(true);
-  const [targetColIndices, setTargetColIndices] = useState<number[]>([0]);
-  const [categoryColIndex, setCategoryColIndex] = useState(1);
-  const [scoreColIndex, setScoreColIndex] = useState(2);
+  const [rawCsvData, setRawCsvData] = useState<Record<string, string>[]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
 
-  // 初回起動時に1,200件のサンプルアンケートをロード
+  // localStorageからの復元
   useEffect(() => {
+    const saved = localStorage.getItem('textMinerSettings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.posFilter) {
+          setPosNoun(parsed.posFilter.includes('noun'));
+          setPosAdj(parsed.posFilter.includes('adj'));
+          setPosVerb(parsed.posFilter.includes('verb'));
+        }
+        if (parsed.minFreq) setMinFreq(parsed.minFreq);
+        if (parsed.customStopwords !== undefined) setCustomStopwordsStr(parsed.customStopwords);
+        if (parsed.cooccurrenceMinFreq) setNetworkMinCooc(parsed.cooccurrenceMinFreq);
+        if (parsed.jaccardThreshold) setNetworkMinJaccard(parsed.jaccardThreshold);
+      } catch (e) {
+        console.error('Failed to parse saved settings', e);
+      }
+    }
     loadSample(1200);
   }, []);
+
+  // localStorageへの自動保存
+  useEffect(() => {
+    const settings = {
+      posFilter: [
+        ...(posNoun ? ['noun'] : []),
+        ...(posAdj ? ['adj'] : []),
+        ...(posVerb ? ['verb'] : [])
+      ],
+      minFreq,
+      customStopwords: customStopwordsStr,
+      cooccurrenceMinFreq: networkMinCooc,
+      jaccardThreshold: networkMinJaccard
+    };
+    localStorage.setItem('textMinerSettings', JSON.stringify(settings));
+  }, [posNoun, posAdj, posVerb, minFreq, customStopwordsStr, networkMinCooc, networkMinJaccard]);
 
   // サンプルデータ生成と解析
   const loadSample = (count: number) => {
@@ -73,7 +115,15 @@ export default function App() {
     setProgress(15);
     setTimeout(() => {
       const sample = generateSampleData(count);
-      processDataset(sample);
+      setColumnMapping({
+        textCols: ['Q1_良い点・満足な点', 'Q2_不満・改善要望'],
+        attributeCols: ['年代', '契約プラン'],
+        scoreCols: ['総合満足度', '推奨度NPS']
+      });
+      setSelectedQuestion('ALL');
+      setAttributeFilters({});
+      setBaseRows(sample);
+      processDataset(sample, undefined, 'ALL');
     }, 50);
   };
 
@@ -103,26 +153,22 @@ export default function App() {
         }) as string;
 
         Papa.parse(unicodeString, {
-          header: false,
+          header: true, // ヘッダーとして読み込む
           skipEmptyLines: true,
           complete: (results) => {
-            const data = results.data as string[][];
+            const data = results.data as Record<string, string>[];
             if (data.length < 1) {
               alert('CSVファイルが空または有効な行がありません。');
               setIsProcessing(false);
               return;
             }
+            
+            const headers = results.meta.fields || Object.keys(data[0] || {});
 
-            setCsvData(data);
-            
-            // 初期列の推定
-            const colCount = data[0].length;
-            setTargetColIndices([0]);
-            setCategoryColIndex(colCount > 1 ? 1 : -1);
-            setScoreColIndex(colCount > 2 ? 2 : -1);
-            
+            setCsvHeaders(headers);
+            setRawCsvData(data);
             setIsCsvModalOpen(true);
-            setIsProcessing(false); // モーダル表示時はプログレスバーを非表示
+            setIsProcessing(false);
           },
           error: () => {
             alert('CSVの解析に失敗しました。フォーマットを確認してください。');
@@ -137,36 +183,102 @@ export default function App() {
     reader.readAsArrayBuffer(file);
   };
 
-  const executeCsvImport = () => {
-    if (targetColIndices.length === 0) {
-      alert('分析対象のテキスト列を1つ以上選択してください。');
-      return;
-    }
+  const handleExportConfig = () => {
+    const config: SavedAnalysisConfig = {
+      columnMapping,
+      posFilter: [
+        ...(posNoun ? ['noun' as PosType] : []),
+        ...(posAdj ? ['adj' as PosType] : []),
+        ...(posVerb ? ['verb' as PosType] : [])
+      ],
+      minFreq,
+      customStopwords: customStopwordsStr,
+      cooccurrenceMinFreq: networkMinCooc,
+      jaccardThreshold: networkMinJaccard
+    };
+    
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'textminer-config.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
+  const handleImportConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    e.target.value = ''; // reset
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const config = JSON.parse(event.target?.result as string) as SavedAnalysisConfig;
+        
+        if (config.posFilter) {
+          setPosNoun(config.posFilter.includes('noun'));
+          setPosAdj(config.posFilter.includes('adj'));
+          setPosVerb(config.posFilter.includes('verb'));
+        }
+        if (config.minFreq) setMinFreq(config.minFreq);
+        if (config.customStopwords !== undefined) setCustomStopwordsStr(config.customStopwords);
+        if (config.cooccurrenceMinFreq) setNetworkMinCooc(config.cooccurrenceMinFreq);
+        if (config.jaccardThreshold) setNetworkMinJaccard(config.jaccardThreshold);
+        if (config.columnMapping) setColumnMapping(config.columnMapping);
+        
+        alert('設定プロファイルを読み込みました。');
+
+        if (baseRows.length > 0) {
+          processDataset(baseRows, config.customStopwords);
+        }
+      } catch (err) {
+        alert('設定ファイルの読み込みに失敗しました。');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const executeCsvImport = (config: ColumnMappingConfig) => {
     setIsCsvModalOpen(false);
     setIsProcessing(true);
     setProgress(10);
+    setColumnMapping(config);
     
     setTimeout(() => {
         const parsedRows: SurveyRow[] = [];
-        const startIndex = csvHasHeader ? 1 : 0;
         
-        for (let i = startIndex; i < csvData.length; i++) {
-          const cols = csvData[i];
+        for (let i = 0; i < rawCsvData.length; i++) {
+          const row = rawCsvData[i];
           
-          // 選択された複数列のテキストをスペース区切りで結合
-          const combinedText = targetColIndices
-            .map(idx => cols[idx])
-            .filter(text => text && text.trim() !== '')
-            .join('  '); // 分析に影響が出にくいようにスペースで結合
+          const texts: Record<string, string> = {};
+          config.textCols.forEach(c => texts[c] = row[c] || '');
+          
+          const attributes: Record<string, string> = {};
+          config.attributeCols.forEach(c => attributes[c] = row[c] || '');
+          
+          const scores: Record<string, number> = {};
+          config.scoreCols.forEach(c => {
+             const val = Number(row[c]);
+             if (!isNaN(val)) scores[c] = val;
+          });
+          
+          const combinedText = config.textCols
+            .map(c => row[c] || '')
+            .filter(text => text.trim() !== '')
+            .join(' ');
           
           if (combinedText.trim() === '') continue;
           
           parsedRows.push({
             id: `ROW-${i}`,
             text: combinedText,
-            category: categoryColIndex >= 0 ? cols[categoryColIndex] || '一般' : '一般',
-            score: scoreColIndex >= 0 && cols[scoreColIndex] ? Number(cols[scoreColIndex]) : undefined,
+            texts,
+            attributes,
+            scores,
+            category: config.attributeCols.length > 0 ? row[config.attributeCols[0]] || '一般' : '一般',
+            score: config.scoreCols.length > 0 ? Number(row[config.scoreCols[0]]) || undefined : undefined,
             wordCount: combinedText.length
           });
         }
@@ -177,15 +289,19 @@ export default function App() {
             return;
         }
 
-        processDataset(parsedRows);
+        setSelectedQuestion('ALL');
+        setAttributeFilters({});
+        setBaseRows(parsedRows);
+        processDataset(parsedRows, undefined, 'ALL');
     }, 50);
   };
 
   // データセットのローカル形態素解析・センチメント付与
-  const processDataset = (rawRows: SurveyRow[], overrideStopwordsStr?: string) => {
+  const processDataset = (rawRows: SurveyRow[], overrideStopwordsStr?: string, targetQ?: string) => {
     setProgress(30);
 
     const targetStopwordsStr = overrideStopwordsStr !== undefined ? overrideStopwordsStr : customStopwordsStr;
+    const questionToProcess = targetQ !== undefined ? targetQ : selectedQuestion;
 
     // ストップワードの結合
     const stopwordSet = new Set(DEFAULT_STOPWORDS);
@@ -207,15 +323,22 @@ export default function App() {
       const end = Math.min(startIdx + 200, total);
       for (let i = startIdx; i < end; i++) {
         const r = rawRows[i];
-        const tokens = tokenizeText(r.text, stopwordSet);
-        const sentiment = calculateRowSentiment(r.text, tokens);
+        
+        let targetText = r.text;
+        if (questionToProcess !== 'ALL' && r.texts) {
+          targetText = r.texts[questionToProcess] || '';
+        }
+
+        const tokens = tokenizeText(targetText, stopwordSet);
+        const sentiment = calculateRowSentiment(targetText, tokens);
 
         tokensResult.set(r.id, tokens);
         enrichedRows.push({
           ...r,
+          text: targetText, // 解析対象テキストで上書き
           sentiment: sentiment.label,
           sentimentScore: sentiment.score,
-          wordCount: r.text.length
+          wordCount: targetText.length
         });
       }
 
@@ -246,43 +369,64 @@ export default function App() {
     return s;
   }, [posNoun, posAdj, posVerb]);
 
+  // グローバル・セグメント絞り込み
+  const filteredRows = useMemo(() => {
+    if (Object.keys(attributeFilters).length === 0) return rows;
+    
+    return rows.filter(r => {
+      // AND条件（すべての属性条件を満たすか）
+      for (const [attrName, allowedValues] of Object.entries(attributeFilters)) {
+        if (allowedValues.length === 0) continue; // 選択なし＝すべて許可
+        
+        const rowVal = r.attributes?.[attrName] || '';
+        // OR条件（同一属性内ではどれか1つに一致すればOK）
+        if (!allowedValues.includes(rowVal)) {
+          return false; // 1つでも属性条件を満たさない場合は除外
+        }
+      }
+      return true;
+    });
+  }, [rows, attributeFilters]);
+
   // 集計キャッシュ
   const wordFrequencies = useMemo(() => {
-    return computeWordFrequencies(rows, tokenMap, minFreq, activePosFilter);
-  }, [rows, tokenMap, minFreq, activePosFilter]);
+    return computeWordFrequencies(filteredRows, tokenMap, minFreq, activePosFilter);
+  }, [filteredRows, tokenMap, minFreq, activePosFilter]);
 
   const cooccurrenceData = useMemo(() => {
-    return computeCooccurrence(rows, tokenMap, 28, networkMinCooc, networkMinJaccard);
-  }, [rows, tokenMap, networkMinCooc, networkMinJaccard]);
+    return computeCooccurrence(filteredRows, tokenMap, 28, networkMinCooc, networkMinJaccard);
+  }, [filteredRows, tokenMap, networkMinCooc, networkMinJaccard]);
 
   const ngrams = useMemo(() => {
-    return computeNgrams(rows, tokenMap, 2, minFreq);
-  }, [rows, tokenMap, minFreq]);
+    return computeNgrams(filteredRows, tokenMap, 2, minFreq);
+  }, [filteredRows, tokenMap, minFreq]);
 
   // サマリー計算
   const summary = useMemo(() => {
     let totalLen = 0;
+    let totalTokens = 0;
     let posCount = 0;
     let neuCount = 0;
     let negCount = 0;
 
-    for (const r of rows) {
+    for (const r of filteredRows) {
       totalLen += r.text.length;
+      totalTokens += (tokenMap.get(r.id)?.length || 0);
       if (r.sentiment === 'positive') posCount++;
       else if (r.sentiment === 'negative') negCount++;
       else neuCount++;
     }
 
     return {
-      totalRows: rows.length,
-      totalTokens: Array.from(tokenMap.values()).reduce((acc, t) => acc + t.length, 0),
-      avgLength: rows.length > 0 ? Math.round(totalLen / rows.length) : 0,
+      totalRows: filteredRows.length,
+      totalTokens,
+      avgLength: filteredRows.length > 0 ? Math.round(totalLen / filteredRows.length) : 0,
       positiveCount: posCount,
       neutralCount: neuCount,
       negativeCount: negCount,
       vocabCount: wordFrequencies.length
     };
-  }, [rows, tokenMap, wordFrequencies]);
+  }, [filteredRows, tokenMap, wordFrequencies]);
 
   // 単語クリック時にKWIC原文検索タブへジャンプ
   const handleWordDrilldown = (word: string) => {
@@ -296,160 +440,84 @@ export default function App() {
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
 
       {/* CSVインポート設定モーダル */}
-      {isCsvModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Upload className="w-5 h-5 text-indigo-600" />
-                CSVインポート設定
-              </h2>
-              <button onClick={() => setIsCsvModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                &times;
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={csvHasHeader}
-                    onChange={(e) => setCsvHasHeader(e.target.checked)}
-                    className="rounded text-indigo-600 focus:ring-indigo-500"
-                  />
-                  1行目をヘッダー（列名）として扱う
-                </label>
-              </div>
-
-              <div className="space-y-4">
-                <div className="bg-white border border-slate-300 rounded-lg p-3">
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    分析対象のテキスト列 (複数選択可) <span className="text-red-500">*</span>
-                  </label>
-                  <div className="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 rounded p-2 bg-slate-50">
-                    {csvData[0]?.map((col, idx) => (
-                      <label key={idx} className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer hover:bg-slate-100 p-1 rounded">
-                        <input
-                          type="checkbox"
-                          checked={targetColIndices.includes(idx)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setTargetColIndices(prev => [...prev, idx].sort((a, b) => a - b));
-                            } else {
-                              setTargetColIndices(prev => prev.filter(i => i !== idx));
-                            }
-                          }}
-                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="flex-1">
-                          {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-2">複数選択した場合、テキストはスペースで結合されて1つの回答として分析されます。</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    カテゴリ列 (任意)
-                  </label>
-                  <select
-                    value={categoryColIndex}
-                    onChange={(e) => setCategoryColIndex(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
-                  >
-                    <option value={-1}>-- 使用しない --</option>
-                    {csvData[0]?.map((col, idx) => (
-                      <option key={idx} value={idx}>
-                        {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    スコア・評価列 (任意)
-                  </label>
-                  <select
-                    value={scoreColIndex}
-                    onChange={(e) => setScoreColIndex(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
-                  >
-                    <option value={-1}>-- 使用しない --</option>
-                    {csvData[0]?.map((col, idx) => (
-                      <option key={idx} value={idx}>
-                        {csvHasHeader ? col || `列 ${idx + 1}` : `列 ${idx + 1} (例: ${col.substring(0, 20)}...)`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-              <button
-                onClick={() => setIsCsvModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={executeCsvImport}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
-              >
-                インポート実行
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ColumnMappingModal
+        isOpen={isCsvModalOpen}
+        headers={csvHeaders}
+        previewData={rawCsvData}
+        initialConfig={columnMapping}
+        onApply={executeCsvImport}
+        onClose={() => setIsCsvModalOpen(false)}
+      />
 
       {/* ヘッダー */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-center gap-3 shrink-0 min-w-0">
+            <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-sm shrink-0">
               <Cpu className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-slate-900">日本語アンケート・テキストマイニングツール</h1>
-                <span className="flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
+                <h1 className="text-base font-bold text-slate-900 whitespace-nowrap">日本語アンケート・テキストマイニングツール</h1>
+                <span className="flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200 whitespace-nowrap shrink-0" title="ローカル完全完結 (外部通信なし)">
                   <ShieldCheck className="w-3 h-3" />
-                  ローカル完全完結 (外部通信なし)
+                  ローカル完全完結
                 </span>
               </div>
-              <p className="text-xs text-slate-500">1,000〜10,000件規模の自由記述を高精度・高速にブラウザ内で一括解析</p>
+              <p className="text-[11px] text-slate-500 truncate" title="1,000〜10,000件規模の自由記述を高精度・高速にブラウザ内で一括解析">1,000〜10,000件規模の自由記述を高精度・高速にブラウザ内で一括解析</p>
             </div>
           </div>
 
           {/* クイックアクション */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsHelpOpen(true)}
-              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-2 rounded-lg transition"
-              title="使い方ガイド・READMEを開く"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
-              使い方(README)
-            </button>
-
-            <label className="flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3.5 py-2 rounded-lg cursor-pointer transition shadow-xs">
+          <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto pb-1 lg:pb-0">
+            <label className="flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-2.5 py-1.5 rounded-lg cursor-pointer transition shadow-xs whitespace-nowrap shrink-0" title="CSVファイルを読込">
               <Upload className="w-3.5 h-3.5" />
-              CSVファイルを読込
+              CSV読込
               <input type="file" accept=".csv,.txt,.tsv" onChange={handleFileUpload} className="hidden" />
             </label>
 
             <button
               onClick={() => loadSample(1200)}
-              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-2 rounded-lg transition"
+              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-2.5 py-1.5 rounded-lg transition whitespace-nowrap shrink-0"
               title="1,200件のデモアンケートを再読み込み"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              デモデータ生成
+              デモ生成
+            </button>
+
+            {rawCsvData.length > 0 && (
+              <button
+                onClick={() => setIsCsvModalOpen(true)}
+                className="flex items-center gap-1.5 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium px-2.5 py-1.5 rounded-lg transition border border-emerald-200 whitespace-nowrap shrink-0"
+                title="読み込み済みCSVの列マッピングを再設定"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                列設定
+              </button>
+            )}
+
+            <div className="h-4 w-px bg-slate-200 shrink-0 mx-0.5"></div>
+
+            <button
+              onClick={handleExportConfig}
+              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-2.5 py-1.5 rounded-lg transition whitespace-nowrap shrink-0"
+              title="現在の設定を.jsonファイルとして保存"
+            >
+              <Save className="w-3.5 h-3.5 text-slate-500" />
+              設定保存
+            </button>
+            <label className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-2.5 py-1.5 rounded-lg cursor-pointer transition whitespace-nowrap shrink-0" title="保存した.jsonファイルから設定を読込">
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              設定読込
+              <input type="file" accept=".json" onChange={handleImportConfig} className="hidden" />
+            </label>
+            <button
+              onClick={() => setIsHelpOpen(true)}
+              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-2.5 py-1.5 rounded-lg transition whitespace-nowrap shrink-0"
+              title="使い方ガイド・READMEを開く"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
+              使い方
             </button>
           </div>
         </div>
@@ -458,31 +526,31 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 border-t border-slate-100 overflow-x-auto text-xs font-medium">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'dashboard'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            ダッシュボード概要
+            ダッシュボード
           </button>
 
           <button
             onClick={() => setActiveTab('frequencies')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'frequencies'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <FileText className="w-4 h-4" />
-            単語頻度ランキング ({wordFrequencies.length})
+            頻度ランキング ({wordFrequencies.length})
           </button>
 
           <button
             onClick={() => setActiveTab('cloud')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'cloud'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -494,7 +562,7 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('network')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'network'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -506,38 +574,50 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('ngrams')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'ngrams'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Layers className="w-4 h-4" />
-            2-gram 連語フレーズ
+            2-gram 連語
           </button>
 
           <button
             onClick={() => setActiveTab('sentiment')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'sentiment'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <HeartPulse className="w-4 h-4" />
-            感情・満足度分析
+            感情・満足度
           </button>
 
           <button
             onClick={() => setActiveTab('kwic')}
-            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition ${
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'kwic'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Search className="w-4 h-4" />
-            KWIC・原文ブラウザ
+            KWIC・原文
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('segment')}
+            className={`py-3 px-2.5 border-b-2 flex items-center gap-2 transition whitespace-nowrap shrink-0 ${
+              activeTab === 'segment'
+                ? 'border-indigo-600 text-indigo-600 font-bold'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            セグメント比較
           </button>
         </div>
       </header>
@@ -557,70 +637,175 @@ export default function App() {
 
       {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
-        {/* 上部フィルタ・オプションバー */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 text-xs">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-700 flex items-center gap-1">
-                <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                抽出品詞:
-              </span>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={posNoun}
-                  onChange={(e) => setPosNoun(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-indigo-500"
-                />
-                名詞
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={posAdj}
-                  onChange={(e) => setPosAdj(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-indigo-500"
-                />
-                形容詞
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={posVerb}
-                  onChange={(e) => setPosVerb(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-indigo-500"
-                />
-                動詞
-              </label>
+        
+        {/* 上部フィルタ・オプションバー（設問切替＆属性フィルタ） */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-4 text-xs">
+          
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-blue-500" />
+                  分析対象の自由記述:
+                </span>
+                <select
+                  value={selectedQuestion}
+                  onChange={(e) => {
+                    setSelectedQuestion(e.target.value);
+                    processDataset(baseRows, undefined, e.target.value);
+                  }}
+                  className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded text-slate-800 font-medium"
+                >
+                  <option value="ALL">[ 選択した全設問を統合 ]</option>
+                  {columnMapping.textCols.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+
+              {columnMapping.attributeCols.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pl-4 border-l border-slate-200">
+                  <span className="font-semibold text-slate-700 flex items-center gap-1">
+                    <Filter className="w-3.5 h-3.5 text-green-500" />
+                    属性・セグメント絞り込み:
+                  </span>
+                  {columnMapping.attributeCols.map(attr => (
+                    <div key={attr} className="flex items-center gap-1">
+                      <span className="text-slate-500">{attr}:</span>
+                      <select
+                        className="px-2 py-1 bg-slate-50 border border-slate-300 rounded"
+                        value=""
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) return;
+                          setAttributeFilters(prev => {
+                            const current = prev[attr] || [];
+                            if (!current.includes(val)) {
+                              return { ...prev, [attr]: [...current, val] };
+                            }
+                            return prev;
+                          });
+                        }}
+                      >
+                        <option value="">＋追加</option>
+                        {Array.from(new Set(baseRows.map(r => r.attributes?.[attr] || '').filter(v => v))).map(v => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">最小出現回数:</span>
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={minFreq}
-                onChange={(e) => setMinFreq(Math.max(1, Number(e.target.value)))}
-                className="w-14 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-center"
-              />
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(attributeFilters).map(([attr, vals]) => 
+                vals.map(val => (
+                  <span key={`${attr}-${val}`} className="inline-flex items-center gap-1 bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full">
+                    <span className="opacity-70">{attr}:</span> {val}
+                    <button
+                      className="hover:bg-green-200 rounded-full p-0.5"
+                      onClick={() => setAttributeFilters(prev => ({
+                        ...prev,
+                        [attr]: prev[attr].filter(v => v !== val)
+                      }))}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))
+              )}
+              {Object.keys(attributeFilters).some(k => attributeFilters[k].length > 0) && (
+                <button
+                  className="text-slate-500 hover:text-slate-800 underline decoration-slate-300 underline-offset-2"
+                  onClick={() => setAttributeFilters({})}
+                >
+                  クリア
+                </button>
+              )}
             </div>
+          </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">除外語(カンマ区切り):</span>
-              <input
-                type="text"
-                placeholder="例: 御社, 会社, *ます"
-                value={customStopwordsStr}
-                onChange={(e) => setCustomStopwordsStr(e.target.value)}
-                onBlur={() => processDataset(rows)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    processDataset(rows);
-                  }
-                }}
-                className="w-48 px-2.5 py-1 bg-slate-50 border border-slate-300 rounded text-xs"
-              />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                  <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                  抽出品詞:
+                </span>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={posNoun}
+                    onChange={(e) => setPosNoun(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  名詞
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={posAdj}
+                    onChange={(e) => setPosAdj(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  形容詞
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={posVerb}
+                    onChange={(e) => setPosVerb(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  動詞
+                </label>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500">最小出現回数:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={minFreq}
+                  onChange={(e) => setMinFreq(Math.max(1, Number(e.target.value)))}
+                  className="w-14 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-center"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500">除外語(カンマ区切り):</span>
+                <input
+                  type="text"
+                  placeholder="例: 御社, 会社, *ます"
+                  value={customStopwordsStr}
+                  onChange={(e) => setCustomStopwordsStr(e.target.value)}
+                  onBlur={() => processDataset(baseRows)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      processDataset(baseRows);
+                    }
+                  }}
+                  className="w-48 px-2.5 py-1 bg-slate-50 border border-slate-300 rounded text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 border-l border-slate-200 pl-4">
+                <button
+                  onClick={() => {
+                    setPosNoun(true);
+                    setPosAdj(true);
+                    setPosVerb(true);
+                    setMinFreq(3);
+                    setCustomStopwordsStr('');
+                    processDataset(baseRows);
+                  }}
+                  className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded transition"
+                  title="解析設定を初期値に戻す"
+                >
+                  設定を初期化
+                </button>
+              </div>
             </div>
           </div>
 
@@ -724,7 +909,7 @@ export default function App() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {wordFrequencies.slice(0, 100).map((w, idx) => {
-                    const coverage = rows.length > 0 ? ((w.docFrequency / rows.length) * 100).toFixed(1) : '0';
+                    const coverage = filteredRows.length > 0 ? ((w.docFrequency / filteredRows.length) * 100).toFixed(1) : '0';
                     return (
                       <tr key={w.word} className="hover:bg-slate-50/80 transition">
                         <td className="py-2 px-4 text-slate-400 font-mono font-bold">{idx + 1}</td>
@@ -749,7 +934,7 @@ export default function App() {
                             onClick={() => {
                               const newStr = customStopwordsStr.trim() ? `${customStopwordsStr.trim()}, ${w.word}` : w.word;
                               setCustomStopwordsStr(newStr);
-                              processDataset(rows, newStr);
+                              processDataset(baseRows, newStr);
                             }}
                             className="text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition"
                             title="この単語を除外語に追加して再集計"
@@ -821,19 +1006,28 @@ export default function App() {
             </div>
           </div>
         )}
+{/* 6. セグメント比較 (NEW) */}
+{activeTab === 'segment' && (
+  <SegmentComparisonView
+    rows={filteredRows}
+    tokenMap={tokenMap}
+    onWordClick={handleWordDrilldown}
+    attributeCols={columnMapping.attributeCols}
+    textCols={columnMapping.textCols}
+  />
+)}
 
-        {/* 6. 感情・満足度分析 */}
-        {activeTab === 'sentiment' && (
-          <SentimentAnalysisView rows={rows} />
-        )}
+{/* 6. 感情・満足度分析 */}
+{activeTab === 'sentiment' && (
+  <SentimentAnalysisView rows={filteredRows} attributeCols={columnMapping.attributeCols} textCols={columnMapping.textCols} />
+)}
 
-        {/* 7. KWIC・原文ブラウザ */}
-        {activeTab === 'kwic' && (
-          <KwicBrowserView rows={rows} initialKeyword={kwicSearchQuery} />
-        )}
+{/* 7. KWIC原文ブラウザ */}
+{activeTab === 'kwic' && (
+  <KwicBrowserView rows={filteredRows} initialKeyword={kwicSearchQuery} />
+)}
       </main>
 
-      {/* フッター */}
       <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
         完全ローカル実行型 日本語テキストマイニングツール &bull; 端末内メモリ完結・個人情報や社内機密アンケートの外部流出リスクなし
       </footer>

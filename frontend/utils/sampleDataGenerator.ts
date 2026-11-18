@@ -38,24 +38,32 @@ export function generateSampleData(count: number = 1200): SurveyRow[] {
 
   for (let i = 1; i <= count; i++) {
     const rand = Math.random();
-    let text = '';
-    let score = 3;
+    let text1 = '';
+    let text2 = '';
+    let csat = 3;
+    let nps = 5;
 
     if (rand < 0.45) {
-      text = POSITIVE_PATTERNS[Math.floor(Math.random() * POSITIVE_PATTERNS.length)];
-      score = Math.random() < 0.6 ? 5 : 4;
+      text1 = POSITIVE_PATTERNS[Math.floor(Math.random() * POSITIVE_PATTERNS.length)];
+      text2 = NEUTRAL_PATTERNS[Math.floor(Math.random() * NEUTRAL_PATTERNS.length)];
+      csat = Math.random() < 0.6 ? 5 : 4;
+      nps = Math.random() < 0.5 ? 9 : 10;
       if (Math.random() < 0.4) {
-        text += ' ' + POSITIVE_PATTERNS[Math.floor(Math.random() * POSITIVE_PATTERNS.length)];
+        text1 += ' ' + POSITIVE_PATTERNS[Math.floor(Math.random() * POSITIVE_PATTERNS.length)];
       }
     } else if (rand < 0.78) {
-      text = NEGATIVE_PATTERNS[Math.floor(Math.random() * NEGATIVE_PATTERNS.length)];
-      score = Math.random() < 0.5 ? 1 : 2;
+      text1 = NEUTRAL_PATTERNS[Math.floor(Math.random() * NEUTRAL_PATTERNS.length)];
+      text2 = NEGATIVE_PATTERNS[Math.floor(Math.random() * NEGATIVE_PATTERNS.length)];
+      csat = Math.random() < 0.5 ? 1 : 2;
+      nps = Math.floor(Math.random() * 5); // 0-4
       if (Math.random() < 0.3) {
-        text += ' 特に' + NEGATIVE_PATTERNS[Math.floor(Math.random() * NEGATIVE_PATTERNS.length)];
+        text2 += ' 特に' + NEGATIVE_PATTERNS[Math.floor(Math.random() * NEGATIVE_PATTERNS.length)];
       }
     } else {
-      text = NEUTRAL_PATTERNS[Math.floor(Math.random() * NEUTRAL_PATTERNS.length)];
-      score = 3;
+      text1 = NEUTRAL_PATTERNS[Math.floor(Math.random() * NEUTRAL_PATTERNS.length)];
+      text2 = NEUTRAL_PATTERNS[Math.floor(Math.random() * NEUTRAL_PATTERNS.length)];
+      csat = 3;
+      nps = Math.floor(Math.random() * 3) + 5; // 5-7
     }
 
     const cat = CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
@@ -63,13 +71,27 @@ export function generateSampleData(count: number = 1200): SurveyRow[] {
     const daysAgo = Math.floor(Math.random() * 90);
     const dateStr = new Date(now - daysAgo * 24 * 3600 * 1000).toISOString().split('T')[0];
 
+    const combinedText = [text1, text2].filter(Boolean).join(' ');
+
     rows.push({
       id: `RES-${String(i).padStart(5, '0')}`,
-      text,
-      category: `${cat} / ${plan}`,
-      score,
+      text: combinedText,
+      texts: {
+        'Q1_良い点・満足な点': text1,
+        'Q2_不満・改善要望': text2
+      },
+      attributes: {
+        '年代': cat,
+        '契約プラン': plan
+      },
+      scores: {
+        '総合満足度': csat,
+        '推奨度NPS': nps
+      },
+      category: `${cat} / ${plan}`, // fallback
+      score: csat, // fallback
       date: dateStr,
-      wordCount: text.length
+      wordCount: combinedText.length
     });
   }
 

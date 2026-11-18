@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { SurveyRow } from '../types';
 import { Search, Filter, Download, MessageSquareText, Star } from 'lucide-react';
 
@@ -13,6 +13,11 @@ export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeywo
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
   const pageSize = 15;
+
+  useEffect(() => {
+    setSearchWord(initialKeyword);
+    setPage(1);
+  }, [initialKeyword]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -178,9 +183,22 @@ export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeywo
                     <span>{r.wordCount}文字</span>
                   </div>
                 </div>
-                <p className="text-sm text-slate-800 leading-relaxed">
-                  {highlightText(r.text, searchWord)}
-                </p>
+                <div className="text-sm text-slate-800 leading-relaxed space-y-2">
+                  {r.texts && Object.keys(r.texts).length > 0 ? (
+                    Object.entries(r.texts).map(([qName, qText], idx) => (
+                      <div key={idx} className="flex flex-col gap-0.5">
+                        {Object.keys(r.texts).length > 1 && (
+                          <span className="text-xs font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded w-fit">
+                            {qName}
+                          </span>
+                        )}
+                        <p>{highlightText(qText, searchWord)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p>{highlightText(r.text, searchWord)}</p>
+                  )}
+                </div>
               </div>
             );
           })

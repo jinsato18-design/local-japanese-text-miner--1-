@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, HelpCircle, ShieldCheck, FileSpreadsheet, Cpu, Sparkles } from 'lucide-react';
+import licensesText from '../../THIRD_PARTY_LICENSES.txt?raw';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -114,6 +115,40 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
                   画面上部の入力欄から、除外したい語句をカンマ区切りで指定できます。<br/>
                   完全一致だけでなく、<code>*ます</code> や <code>～ます</code> のようなワイルドカード指定にも対応しています。
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 利用条件・免責事項 */}
+          <div>
+            <h3 className="font-bold text-slate-800 text-sm mb-2 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              利用条件・免責事項（オープンソースライセンス）
+            </h3>
+            <div className="space-y-2.5">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">データの取り扱い</span>
+                <p className="text-slate-500 mt-0.5">本ツールはブラウザ内メモリでのみ動作し外部通信を行いませんが、ブラウザを閉じるとデータが消去されるため、バックアップは利用者の責任で行ってください。</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">解析精度の限界</span>
+                <p className="text-slate-500 mt-0.5">Web標準の <code>Intl.Segmenter</code> や簡易辞書による形態素分割・極性判定は統計的・簡易的な処理であり、文脈や皮肉などによって意図と異なる結果になる場合があります。</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">免責事項（無保証）</span>
+                <p className="text-slate-500 mt-0.5">開発者および提供者は、本ツールの正確性・完全性・動作の安定性について保証せず、利用によって生じたいかなる損害についても責任を負いません。</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-800">オープンソースライセンスの表記</span>
+                <p className="text-slate-500 mt-0.5 mb-2">本ツールは、React、Recharts、PapaParse、encoding-japanese などのサードパーティ製ソフトウェアを利用しています。</p>
+                <details className="group">
+                  <summary className="cursor-pointer text-indigo-600 hover:text-indigo-700 font-medium select-none flex items-center gap-1 text-[11px]">
+                    <span>サードパーティライセンス情報を表示</span>
+                  </summary>
+                  <div className="mt-2 p-3 bg-white border border-slate-200 rounded text-[10px] text-slate-500 h-40 overflow-y-auto whitespace-pre-wrap font-mono">
+                    {licensesText}
+                  </div>
+                </details>
               </div>
             </div>
           </div>

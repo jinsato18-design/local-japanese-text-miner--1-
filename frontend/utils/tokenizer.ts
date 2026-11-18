@@ -1,17 +1,25 @@
-import { PosType, WordToken, SurveyRow, WordFrequency, CooccurrenceEdge, CooccurrenceNode, NgramFreq } from '../types';
+import { PosType, WordToken, SurveyRow, WordFrequency, CooccurrenceEdge, CooccurrenceNode, NgramFreq, ExcludeOptions } from '../types';
 
-// 代表的なストップワード（分析でノイズになりやすい助詞・代名詞・一般的すぎる語句）
+// 代表的なストップワード（純粋な汎用ノイズ語）
 export const DEFAULT_STOPWORDS = new Set([
-  'こと', 'もの', 'それ', 'これ', 'あれ', 'どれ', 'よう', 'そう', 'ため', 'ところ',
-  'さん', 'とき', 'わけ', 'ほう', 'はず', 'まま', 'たち', 'ほか', 'あと', 'まえ',
-  'する', 'いる', 'ある', 'なる', 'れる', 'られる', 'いく', 'くる', 'おる', 'みる',
-  '思う', '感じる', '考える', '言う', 'できる', 'くださる', 'いただく', 'です', 'ます',
-  'など', 'また', 'そして', 'しかし', 'ただ', 'だが', 'ので', 'から', 'より', 'まで',
-  'て', 'に', 'を', 'は', 'が', 'の', 'と', 'で', 'へ', 'や', 'も', 'ね', 'よ',
-  'ない', 'よい', 'いい', 'あり', 'なし', '御社', '貴社', '今回', '最近', '自分',
-  'お願い', '希望', '利用', '使用', '担当', '対応', '会社', '製品', 'サービス',
-  'ました', 'ません', 'ましょう', 'でした', 'でしょ'
+  'さん', 'とき', 'たち', 'ほか', 'あと', 'まえ',
+  '思う', '感じる', '考える', '言う', 'ただ', 'あり', 'なし', '今回', '最近',
+  'お願い', '希望', '利用', '使用', '担当', '対応', '会社', '製品', 'サービス'
 ]);
+
+const WORD_CATEGORIES = {
+  particle: new Set(['は', 'が', 'を', 'に', 'へ', 'と', 'より', 'から', 'で', 'や', 'の', 'も', 'ね', 'よ', 'わ', 'さ', 'ぞ', 'ぜ', 'か', 'な', 'ば', 'ても', 'でも', 'けれど', 'けれども', 'けど', 'のに', 'ので', 'し', 'ながら', 'たり', 'だり', 'つつ', 'ばかり', 'まで', 'だけ', 'ほど', 'くらい', 'ぐらい', 'など', 'なり', 'やら', 'こそ', 'さえ', 'すら', 'しか', 'って', 'とは', 'には', 'では', 'への', 'との', 'からの', 'までの']),
+  auxiliary: new Set(['です', 'ます', 'ました', 'ません', 'ませんでした', 'ましょう', 'でした', 'でしょ', 'でしょう', 'れる', 'られる', 'せる', 'させる', 'たい', 'たがる', 'ない', 'なかった', 'ぬ', 'ん', 'そう', 'そうだ', 'そうです', 'よう', 'ようだ', 'ようです', 'らしい', 'らしかった', 'だ', 'だった', 'だろう', 'であろう', 'まい', 'べき', 'べし', 'ぬく']),
+  conjunction: new Set(['しかし', 'だが', 'けれども', 'けれど', 'だけど', 'でも', 'ところが', 'それでも', 'それに', 'しかも', 'さらに', 'また', 'および', 'ならびに', 'かつ', 'そして', 'それで', 'そこで', 'したがって', 'ゆえに', 'そのため', 'それゆえ', 'だから', 'すると', 'つまり', 'すなわち', '要するに', 'あるいは', 'または', 'もしくは', 'それとも', 'なお', 'ただし', 'もっとも', 'ちなみに', 'ところで', 'さて', 'では', 'それでは', 'じゃあ', 'なぜなら', 'だって']),
+  pronoun: new Set(['これ', 'それ', 'あれ', 'どれ', 'ここ', 'そこ', 'あそこ', 'どこ', 'こちら', 'そちら', 'あちら', 'どちら', 'こっち', 'そっち', 'あっち', 'どっち', '私', 'わたし', 'わたくし', '僕', 'ぼく', '俺', 'おれ', '自分', 'じぶん', 'うち', 'あなた', '貴方', '君', 'きみ', 'お前', '彼', 'かれ', '彼女', 'かのじょ', '彼ら', '彼女ら', '誰', 'だれ', 'どなた', '何', 'なに', 'なん', 'どれか', '何か', 'どこか', '誰か', 'みんな', '皆', '皆様', '各自', '双方', '両者', '当方', '先方', '貴社', '御社', '弊社', '当社']),
+  dependent: new Set([
+    'こと', 'もの', 'ところ', 'ため', 'はず', 'わけ', 'まま', 'ほう', 'つもり', 'とおり', '通り', 'うち', 'うえ', '上', 'なか', '中', 'もと', '際', 'さい', '度', 'たび', '折', 'おり', '旨', 'むね', '次第', 'しだい',
+    'する', 'している', 'してる', 'した', 'します', 'できる', 'できた', 'できます', 'いる', 'いた', 'います', 'ある', 'あった', 'あります', 'おる', 'おり', 'なる', 'なった', 'なります', 'いく', 'ゆく', 'いった', 'くる', 'きた', 'きます', 'みる', 'みた', 'みます', 'おく', 'おいた', 'おきます', 'しまう', 'しまった', 'しまいます', 'ちゃう', 'じゃう', 'くださる', 'ください', 'いただく', 'いただき', 'いただいた', 'いただきます', 'もらう', 'もらった', 'もらいます', 'あげる', 'くれる', 'ほしい', '欲しい', 'よい', 'いい', 'よかった', '悪い', 'わるい', 'やすい', 'づらい', 'にくい'
+  ])
+};
+
+const SYMBOL_REGEX = /^[!-\/:-@[-`{-~、。・…ー〜～！？（）「」『』【】〔〕〈〉《》［］｛｝※○●◎△▲▽▼□■◇◆★☆♪→←↑↓＝＋－×÷＜＞％＃＆＠＊＿｜／＼：；]+$/;
+const NUMBER_REGEX = /^[0-9０-９.,]+$/;
 
 // 簡易極性辞書（主要なポジティブ・ネガティブ語句と重み）
 const SENTIMENT_DICT: Record<string, number> = {
@@ -57,7 +65,7 @@ function getSegmenter(): Intl.Segmenter {
   return segmenterInstance;
 }
 
-export function tokenizeText(text: string, customStopwords: Set<string>): WordToken[] {
+export function tokenizeText(text: string, customStopwords: Set<string>, excludeOptions?: ExcludeOptions): WordToken[] {
   if (!text) return [];
   
   const exactStopwords = new Set<string>();
@@ -85,14 +93,28 @@ export function tokenizeText(text: string, customStopwords: Set<string>): WordTo
   for (const seg of segments) {
     if (!seg.isWordLike) continue;
     const raw = seg.segment.trim();
-    if (!raw || raw.length < 2) continue; // 1文字はノイズカット
-    if (/^[0-9]+$/.test(raw)) continue;  // 数字のみ除外
+    if (!raw) continue;
+    
+    const isSymbolOrNumber = SYMBOL_REGEX.test(raw) || NUMBER_REGEX.test(raw);
+    
+    if (excludeOptions?.symbol && isSymbolOrNumber) continue;
+    if (excludeOptions?.symbol && raw.length < 2 && /^[ぁ-んァ-ヶ]$/.test(raw)) continue; // 1文字のひらがな・カタカナノイズ
+    if (!excludeOptions && raw.length < 2) continue; // デフォルトの挙動（オプション未指定時）
+    if (!excludeOptions && /^[0-9]+$/.test(raw)) continue;
     if (/^[a-zA-Z]$/.test(raw)) continue;
 
     const normalized = raw.toLowerCase();
     
     if (exactStopwords.has(normalized)) continue;
     
+    if (excludeOptions) {
+      if (excludeOptions.particle && WORD_CATEGORIES.particle.has(normalized)) continue;
+      if (excludeOptions.auxiliary && WORD_CATEGORIES.auxiliary.has(normalized)) continue;
+      if (excludeOptions.conjunction && WORD_CATEGORIES.conjunction.has(normalized)) continue;
+      if (excludeOptions.pronoun && WORD_CATEGORIES.pronoun.has(normalized)) continue;
+      if (excludeOptions.dependent && WORD_CATEGORIES.dependent.has(normalized)) continue;
+    }
+
     let isWildcardMatch = false;
     for (const pattern of wildcardPatterns) {
       if (pattern.test(normalized)) {
@@ -153,23 +175,42 @@ export function computeWordFrequencies(
   rows: SurveyRow[],
   tokenMap: Map<string, WordToken[]>,
   minCount: number = 3,
-  posFilter?: Set<PosType>
+  posFilter?: Set<PosType>,
+  targetScoreCol?: string
 ): WordFrequency[] {
-  const freqMap = new Map<string, { count: number; docSet: Set<string>; pos: PosType; sentimentTotal: number }>();
+  const freqMap = new Map<string, { count: number; docSet: Set<string>; pos: PosType; sentimentTotal: number; scoreTotal: number; scoreCount: number }>();
 
   for (const row of rows) {
     const tokens = tokenMap.get(row.id) || [];
+    
+    // スコアの取得
+    let rowScore: number | undefined;
+    if (targetScoreCol && row.scores && typeof row.scores[targetScoreCol] === 'number') {
+        rowScore = row.scores[targetScoreCol];
+    }
 
     for (const token of tokens) {
       if (posFilter && !posFilter.has(token.pos)) continue;
 
       let entry = freqMap.get(token.normalized);
       if (!entry) {
-        entry = { count: 0, docSet: new Set(), pos: token.pos, sentimentTotal: 0 };
+        entry = { count: 0, docSet: new Set(), pos: token.pos, sentimentTotal: 0, scoreTotal: 0, scoreCount: 0 };
         freqMap.set(token.normalized, entry);
       }
       entry.count += 1;
-      entry.docSet.add(row.id);
+      
+      // 同じ行から複数回出現した場合でもスコアの集計は「出現回数」ベースか「文書」ベースか
+      // 要件には「その単語を含む回答の選択中スコア平均値」「その単語が出現した回答の平均スコア」とある
+      // 文書単位での平均か、出現数ベースの平均か。
+      // 文書への追加（docSetへの追加）と同時に1回だけカウントするのが適切（文書単位平均）
+      if (!entry.docSet.has(row.id)) {
+          entry.docSet.add(row.id);
+          if (rowScore !== undefined) {
+              entry.scoreTotal += rowScore;
+              entry.scoreCount += 1;
+          }
+      }
+      
       entry.sentimentTotal += token.sentimentScore;
     }
   }
@@ -177,13 +218,19 @@ export function computeWordFrequencies(
   const result: WordFrequency[] = [];
   for (const [word, data] of freqMap.entries()) {
     if (data.count >= minCount) {
-      result.push({
+      const freq: WordFrequency = {
         word,
         pos: data.pos,
         count: data.count,
         docFrequency: data.docSet.size,
         sentimentAvg: data.count > 0 ? Number((data.sentimentTotal / data.count).toFixed(2)) : 0
-      });
+      };
+      
+      if (data.scoreCount > 0) {
+          freq.scoreAvg = Number((data.scoreTotal / data.scoreCount).toFixed(2));
+      }
+
+      result.push(freq);
     }
   }
 

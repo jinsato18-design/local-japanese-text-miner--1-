@@ -8,9 +8,11 @@ interface SegmentComparisonViewProps {
   onWordClick: (word: string) => void;
   attributeCols: string[];
   textCols: string[];
+  scoreCols?: string[];
+  selectedScoreCol?: string;
 }
 
-export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCols, textCols }: SegmentComparisonViewProps) {
+export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCols, textCols, scoreCols = [], selectedScoreCol = '' }: SegmentComparisonViewProps) {
   const [compareAxis, setCompareAxis] = useState<string>(attributeCols[0] || 'カテゴリ');
 
   useEffect(() => {
@@ -26,6 +28,8 @@ export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCo
       posCount: number;
       negCount: number;
       wordFreqs: Map<string, number>;
+      scoreTotal: number;
+      scoreCount: number;
     }>();
 
     for (const r of rows) {
@@ -37,13 +41,18 @@ export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCo
       }
 
       if (!segments.has(segName)) {
-        segments.set(segName, { totalRows: 0, posCount: 0, negCount: 0, wordFreqs: new Map() });
+        segments.set(segName, { totalRows: 0, posCount: 0, negCount: 0, wordFreqs: new Map(), scoreTotal: 0, scoreCount: 0 });
       }
 
       const seg = segments.get(segName)!;
       seg.totalRows++;
       if (r.sentiment === 'positive') seg.posCount++;
       if (r.sentiment === 'negative') seg.negCount++;
+      
+      if (selectedScoreCol && r.scores && typeof r.scores[selectedScoreCol] === 'number') {
+        seg.scoreTotal += r.scores[selectedScoreCol];
+        seg.scoreCount++;
+      }
 
       // Count words in this row
       const tokens = tokenMap.get(r.id) || [];
@@ -74,12 +83,13 @@ export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCo
         totalRows: data.totalRows,
         posRate: data.totalRows > 0 ? (data.posCount / data.totalRows) * 100 : 0,
         negRate: data.totalRows > 0 ? (data.negCount / data.totalRows) * 100 : 0,
+        avgScore: data.scoreCount > 0 ? Number((data.scoreTotal / data.scoreCount).toFixed(2)) : undefined,
         topWords
       };
     });
 
     return result.sort((a, b) => b.totalRows - a.totalRows);
-  }, [rows, tokenMap, compareAxis]);
+  }, [rows, tokenMap, compareAxis, selectedScoreCol]);
 
   return (
     <div className="space-y-6">
@@ -112,11 +122,16 @@ export function SegmentComparisonView({ rows, tokenMap, onWordClick, attributeCo
           <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-w-[280px]">
             <div className="bg-slate-50 border-b border-slate-200 p-4">
               <h3 className="font-bold text-slate-800 text-lg truncate" title={seg.name}>{seg.name}</h3>
-              <div className="flex items-center gap-3 mt-2 text-xs">
+              <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
                 <span className="flex items-center gap-1 text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
                   <Users className="w-3.5 h-3.5" />
                   {seg.totalRows} 件
                 </span>
+                {selectedScoreCol && seg.avgScore !== undefined && (
+                  <span className="flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-medium font-mono">
+                    ★ {selectedScoreCol}: {seg.avgScore.toFixed(2)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-4 mt-2">
                 <div className="flex-1 bg-slate-200 h-1.5 rounded-full overflow-hidden flex">

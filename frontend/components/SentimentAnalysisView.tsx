@@ -7,9 +7,11 @@ interface SentimentAnalysisViewProps {
   rows: SurveyRow[];
   attributeCols?: string[];
   textCols?: string[];
+  scoreCols?: string[];
+  selectedScoreCol?: string;
 }
 
-export const SentimentAnalysisView: React.FC<SentimentAnalysisViewProps> = ({ rows, attributeCols = [], textCols = [] }) => {
+export const SentimentAnalysisView: React.FC<SentimentAnalysisViewProps> = ({ rows, attributeCols = [], textCols = [], scoreCols = [], selectedScoreCol = '' }) => {
   const [axis1, setAxis1] = useState<string>(attributeCols[0] || 'カテゴリ');
   const [axis2, setAxis2] = useState<string>('なし');
 
@@ -46,7 +48,7 @@ export const SentimentAnalysisView: React.FC<SentimentAnalysisViewProps> = ({ ro
 
   // カテゴリ別ポジネガ内訳
   const categoryData = useMemo(() => {
-    const map = new Map<string, { category: string; positive: number; neutral: number; negative: number; total: number }>();
+    const map = new Map<string, { category: string; positive: number; neutral: number; negative: number; total: number; scoreTotal: number; scoreCount: number; avgScore?: number }>();
 
     for (const r of rows) {
       let val1 = '全体';
@@ -69,19 +71,28 @@ export const SentimentAnalysisView: React.FC<SentimentAnalysisViewProps> = ({ ro
 
       let entry = map.get(catName);
       if (!entry) {
-        entry = { category: catName, positive: 0, neutral: 0, negative: 0, total: 0 };
+        entry = { category: catName, positive: 0, neutral: 0, negative: 0, total: 0, scoreTotal: 0, scoreCount: 0 };
         map.set(catName, entry);
       }
       entry.total++;
       if (r.sentiment === 'positive') entry.positive++;
       else if (r.sentiment === 'negative') entry.negative++;
       else entry.neutral++;
+      
+      if (selectedScoreCol && r.scores && typeof r.scores[selectedScoreCol] === 'number') {
+          entry.scoreTotal += r.scores[selectedScoreCol];
+          entry.scoreCount++;
+      }
     }
 
     return Array.from(map.values())
+      .map(entry => ({
+          ...entry,
+          avgScore: entry.scoreCount > 0 ? Number((entry.scoreTotal / entry.scoreCount).toFixed(2)) : undefined
+      }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 15);
-  }, [rows, axis1, axis2, textCols]);
+  }, [rows, axis1, axis2, textCols, selectedScoreCol]);
 
   const pieData = [
     { name: 'ポジティブ (好意・満足)', value: sentimentStats.pos, color: '#10b981' },
@@ -193,6 +204,36 @@ export const SentimentAnalysisView: React.FC<SentimentAnalysisViewProps> = ({ ro
                 <Bar dataKey="negative" name="ネガティブ" stackId="a" fill="#ef4444" />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-slate-100 overflow-x-auto">
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">セグメント別 感情・スコア集計一覧</h4>
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase border-b border-slate-200">
+                <tr>
+                  <th className="py-2 px-3 font-semibold">セグメント</th>
+                  <th className="py-2 px-3 font-semibold text-right">件数</th>
+                  <th className="py-2 px-3 font-semibold text-right">ポジティブ率</th>
+                  {selectedScoreCol && (
+                    <th className="py-2 px-3 font-semibold text-right">平均 {selectedScoreCol}</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {categoryData.map((d, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/50">
+                    <td className="py-2 px-3 font-medium text-slate-800">{d.category}</td>
+                    <td className="py-2 px-3 text-right">{d.total}</td>
+                    <td className="py-2 px-3 text-right text-emerald-600">{((d.positive / d.total) * 100).toFixed(1)}%</td>
+                    {selectedScoreCol && (
+                      <td className="py-2 px-3 text-right font-semibold text-amber-600">
+                        {d.avgScore !== undefined ? d.avgScore.toFixed(2) : '-'}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

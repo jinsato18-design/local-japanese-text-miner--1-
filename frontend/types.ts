@@ -28,6 +28,18 @@ export interface AnalysisParams {
 
 export interface SavedAnalysisConfig extends AnalysisParams {
   columnMapping: ColumnMappingConfig;
+  excludeOptions?: ExcludeOptions;
+}
+
+export type ExcludeCategory = 'particle' | 'auxiliary' | 'conjunction' | 'symbol' | 'pronoun' | 'dependent';
+
+export interface ExcludeOptions {
+  particle: boolean;
+  auxiliary: boolean;
+  conjunction: boolean;
+  symbol: boolean;
+  pronoun: boolean;
+  dependent: boolean;
 }
 
 export type PosType = 'noun' | 'verb' | 'adj' | 'other';
@@ -45,6 +57,7 @@ export interface WordFrequency {
   count: number;
   docFrequency: number;
   sentimentAvg: number;
+  scoreAvg?: number;
 }
 
 export interface CooccurrenceEdge {

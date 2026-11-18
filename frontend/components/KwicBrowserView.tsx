@@ -5,9 +5,10 @@ import { Search, Filter, Download, MessageSquareText, Star } from 'lucide-react'
 interface KwicBrowserProps {
   rows: SurveyRow[];
   initialKeyword?: string;
+  scoreCols?: string[];
 }
 
-export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeyword = '' }) => {
+export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeyword = '', scoreCols = [] }) => {
   const [searchWord, setSearchWord] = useState(initialKeyword);
   const [sentimentFilter, setSentimentFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -55,9 +56,18 @@ export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeywo
 
   // CSVエクスポート
   const exportCsv = () => {
-    const header = 'ID,回答テキスト,属性カテゴリ,満足度スコア,感情判定,文字数\n';
+    const scoreHeaders = scoreCols.length > 0 ? scoreCols.join(',') : '満足度スコア';
+    const header = `ID,回答テキスト,属性カテゴリ,${scoreHeaders},感情判定,文字数\n`;
     const body = filteredRows
-      .map(r => `"${r.id}","${r.text.replace(/"/g, '""')}","${r.category || ''}",${r.score || ''},"${r.sentiment || ''}",${r.wordCount || 0}`)
+      .map(r => {
+        let scoresCsv = '';
+        if (scoreCols.length > 0) {
+            scoresCsv = scoreCols.map(col => r.scores?.[col] ?? '').join(',');
+        } else {
+            scoresCsv = String(r.score || '');
+        }
+        return `"${r.id}","${r.text.replace(/"/g, '""')}","${r.category || ''}",${scoresCsv},"${r.sentiment || ''}",${r.wordCount || 0}`;
+      })
       .join('\n');
     const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), header + body], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -169,10 +179,17 @@ export const KwicBrowserView: React.FC<KwicBrowserProps> = ({ rows, initialKeywo
                         {r.category}
                       </span>
                     )}
-                    {r.score && (
+                    {scoreCols.length > 0 ? (
+                      scoreCols.map(col => r.scores?.[col] !== undefined && (
+                        <span key={col} className="flex items-center text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
+                          <Star className="w-3 h-3 fill-amber-400 mr-1" />
+                          {col}: {r.scores[col]}
+                        </span>
+                      ))
+                    ) : r.score && (
                       <span className="flex items-center text-amber-500 font-medium">
                         <Star className="w-3 h-3 fill-amber-400 mr-0.5" />
-                        {r.score}/5
+                        ★ {r.score}
                       </span>
                     )}
                   </div>
